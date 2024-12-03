@@ -4,11 +4,12 @@ import random
 import threading
 import time
 import zlib 
-
+import json
+    
 INITIAL_CWND = 1  
 SS_THRESH = 16    
 TIMEOUT = 1.0
-LOSS_PROB = 0.1
+LOSS_PROB = 0.3
 ERROR_PROB = 0.05
 MAX_SEQ_NUM = 256
 SYN = 1
@@ -73,61 +74,40 @@ def rdt_send(sock, data, addr):
             if random.random() < ERROR_PROB:
                 packet = corrupt_packet(packet)
             sock.sendto(packet, addr)
-
+    
     def corrupt_packet(packet):
         payload = bytearray(packet[6:])
         corruption_type = random.choice(['corrupt', 'discard'])
 
         print(f"Original payload (before corruption): {payload}")
 
-        if corruption_type == 'corrupt':
-            corruption_method = random.choice(['single', 'multiple', 'random'])
+        if corruption_type == 'corrupt' and payload:
+            # Randomly choose the type of corruption
+            corruption_method = random.choice(['single', 'burst', 'random'])
             print(f"Corruption type selected: {corruption_method}")
 
-            if corruption_method == 'single' and payload:
-                random_byte = random.randint(0, len(payload) - 1)
-                original_byte = payload[random_byte]
-                payload[random_byte] ^= 0x01
-                print(f"Single-bit corruption: Byte at index {random_byte} changed from {original_byte:#04x} to {payload[random_byte]:#04x}")
+            if corruption_method == 'single':
+                index = random.randint(0, len(payload) - 1)
+                payload[index] ^= 0x01
+                print(f"Single-bit corruption at index {index}")
 
-            elif corruption_method == 'multiple' and len(payload) >= 3:
-                start = random.randint(0, len(payload) - 3)
-                print(f"Multiple-byte corruption: Bytes from index {start} to {start + 2} flipped.")
-                for i in range(start, start + 3):
-                    original_byte = payload[i]
-                    payload[i] ^= 0xFF
-                    print(f"Byte at index {i} changed from {original_byte:#04x} to {payload[i]:#04x}")
+            elif corruption_method == 'burst':
+                indices = random.sample(range(len(payload)), min(3, len(payload)))
+                for index in indices:
+                    payload[index] ^= 0xFF
+                    print(f"Multiple-byte corruption at index {index}")
 
-            elif corruption_method == 'random' and payload:
-                num_corruptions = min(3, len(payload))
-                print(f"Random-bit corruption: Corrupting {num_corruptions} random bits.")
-                for _ in range(num_corruptions):
-                    random_byte = random.randint(0, len(payload) - 1)
-                    random_bit = 1 << random.randint(0, 7)
-                    original_byte = payload[random_byte]
-                    payload[random_byte] ^= random_bit
-                    print(f"Byte at index {random_byte} changed from {original_byte:#04x} to {payload[random_byte]:#04x}")
+            elif corruption_method == 'random':
+                for _ in range(min(3, len(payload))):
+                    index = random.randint(0, len(payload) - 1)
+                    payload[index] ^= 1 << random.randint(0, 7)
+                    print(f"Random-bit corruption at index {index}")
 
-        elif corruption_type == 'discard':
-            print("Discard type selected.")
-            if len(payload) > 0:
-                num_bits_to_discard = random.choice([1, 2, 3, 4, 5, 6, 7, 8])
-                total_bits = len(payload) * 8
-                print(f"Discarding {num_bits_to_discard} bits from the payload.")
-                if total_bits >= num_bits_to_discard:
-                    total_bits -= num_bits_to_discard
-                    new_byte_length = (total_bits + 7) // 8
-                    print(f"New payload length after discard: {new_byte_length} bytes.")
-                    payload = payload[:new_byte_length]
-                    if total_bits % 8 != 0:
-                        remaining_bits = total_bits % 8
-                        mask = (1 << remaining_bits) - 1
-                        original_byte = payload[-1]
-                        payload[-1] &= mask
-                        print(f"Byte at index {len(payload) - 1} masked from {original_byte:#04x} to {payload[-1]:#04x}")
-                else:
-                    print("Discarding all remaining bits.")
-                    payload[-1] &= 0xFE
+        elif corruption_type == 'discard' and payload:
+            # Discard a random number of bytes (instead of bits for simplicity)
+            num_bytes_to_discard = random.randint(1, len(payload))
+            payload = payload[:-num_bytes_to_discard]
+            print(f"Discarded {num_bytes_to_discard} bytes from the payload.")
 
         print(f"Modified payload (after corruption/discard): {payload}")
         return packet[:6] + bytes(payload)
@@ -229,6 +209,8 @@ def rdt_send(sock, data, addr):
 
     if not disconnect():
         print("Failed to disconnect properly")
+
+
 
 if __name__ == "__main__":
     server_address = ('localhost', 12345)
